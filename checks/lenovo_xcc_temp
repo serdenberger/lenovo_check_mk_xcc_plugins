@@ -1,0 +1,94 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+# modified by Silvio Erdenberger <serdenberger@lenovo.com>
+# 2018-01-20 Version BETA
+# +------------------------------------------------------------------+
+# |             ____ _               _        __  __ _  __           |
+# |            / ___| |__   ___  ___| | __   |  \/  | |/ /           |
+# |           | |   | '_ \ / _ \/ __| |/ /   | |\/| | ' /            |
+# |           | |___| | | |  __/ (__|   <    | |  | | . \            |
+# |            \____|_| |_|\___|\___|_|\_\___|_|  |_|_|\_\           |
+# |                                                                  |
+# | Copyright Mathias Kettner 2014             mk@mathias-kettner.de |
+# +------------------------------------------------------------------+
+#
+# This file is part of Check_MK.
+# The official homepage is at http://mathias-kettner.de/check_mk.
+#
+# check_mk is free software;  you can redistribute it and/or modify it
+# under the  terms of the  GNU General Public License  as published by
+# the Free Software Foundation in version 2.  check_mk is  distributed
+# in the hope that it will be useful, but WITHOUT ANY WARRANTY;  with-
+# out even the implied warranty of  MERCHANTABILITY  or  FITNESS FOR A
+# PARTICULAR PURPOSE. See the  GNU General Public License for more de-
+# tails. You should have  received  a copy of the  GNU  General Public
+# License along with GNU Make; see the file  COPYING.  If  not,  write
+# to the Free Software Foundation, Inc., 51 Franklin St,  Fifth Floor,
+# Boston, MA 02110-1301 USA.
+
+def inventory_lenovo_xcc_temp(info):
+#sil    pprint.pprint(info)
+    for line in info:
+        if line[1] != '0':
+            yield line[0], {}
+
+def check_lenovo_xcc_temp(item, params, info):
+    for line in info:
+        if line[0] == item:
+            temp, dev_crit, dev_warn, dev_crit_lower, dev_warn_lower = map(str,line[1:])
+            temp = float(temp)
+            if item.find("DTS") != -1:
+                dev_crit = float(dev_crit)
+                if dev_warn == "N/A":   # for the SR630, there is no dev_warn level
+                    dev_warn = dev_crit
+                else:
+                    dev_warn = float(dev_warn)
+#                temp = -0.2
+                dev_levels = dev_warn, dev_crit
+                infotext = "%.1f K" % temp
+                perfdata = [ ("temp", temp, str(dev_warn), str(dev_crit)) ]
+                levelstext = " (levels warn/crit: %.1f/%.1f)" % (dev_warn, dev_crit)
+                if temp >= dev_crit:
+                    state = 2
+                    infotext += levelstext
+                elif temp >= dev_warn:
+                    state = 1
+                    infotext += levelstext
+                else:
+                    state = 0
+                return state, infotext, perfdata
+            elif item.find("CPU") != -1 and item.find("Temp") != -1:
+                return check_temperature(temp, params, "lenovo_xcc_temp_%s" % item)
+            elif item.find("Ambient") != -1:
+                dev_crit = float(dev_crit)
+                dev_warn = float(dev_warn)
+                dev_levels = dev_warn, dev_crit
+                return check_temperature(temp, params, "lenovo_xcc_temp_%s" % item, \
+                        dev_levels = dev_levels)
+            elif item.find("Exhaust") != -1:
+                return check_temperature(temp, params, "lenovo_xcc_temp_%s" % item)
+            else:
+                return 3
+
+check_info["lenovo_xcc_temp"] = {
+    'check_function'          : check_lenovo_xcc_temp,
+    'inventory_function'      : inventory_lenovo_xcc_temp,
+    'service_description'     : 'Temperature %s',
+    'includes'                : [ 'temperature.include' ],
+    'has_perfdata'             : True,
+    'group'                   : 'temperature',
+    'snmp_scan_function'      :
+            lambda oid: oid('.1.3.6.1.2.1.1.1.0').lower().endswith(" armv7l"),
+    'snmp_info'               : ('.1.3.6.1.4.1.19046.11.1.1.1.2.1', [ # tempTable.tempEntry
+                                        #1, # tempIndex
+                                        2, # tempDescr
+                                        3, # tempReading
+                                        #4, # tempNominalReading
+                                        #5, # tempNonRecovLimitHigh
+                                        6, # tempCritLimitHigh
+                                        7, # tempNonCritLimitHigh
+                                        #8, # tempNonRecovLimitLow
+                                        9, # tempCritLimitLow
+                                        10, # tempNonCritLimitLow
+                                ]),
+}
